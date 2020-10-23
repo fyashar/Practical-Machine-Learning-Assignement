@@ -13,31 +13,110 @@ knitr::opts_chunk$set(echo = TRUE)
 
 One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we will be using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
 
-## Getting and Cleaning Data
+## Getting Data
+
 The data for this project come from this source: <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har>
 The following steps were taken to create the tidy data file:
+
 1. Set my working directory 
 2. Download the training data from the following link <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>, and save it as “pml-training.csv” file into my working directory.
 3. Download the testing data from the following link <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>, and save it as “pml-testing.csv” file into my working directory.
 4. Read in training and testing data.
 
-```{r}
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 setwd("~/R Projects/Practical Machine Learning/Course Project")
 URLTraining <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
 URLTesting <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
-download.file(URLTraining,"./pml-training.csv",mode = "wb") #use mode = "wb" to download as binary
-download.file(URLTesting,"./pml-testing.csv",mode = "wb") #use mode = "wb" to download as binary
+
+#checking and downloading if the files do not exist in the working directory
+if (!file.exists("pml-training.csv")) { 
+        download.file(URLTraining,"./pml-training.csv",mode = "wb") #use mode = "wb" to download as binary
+}
+if (!file.exists("pml-testing.csv")) {
+        download.file(URLTesting,"./pml-testing.csv",mode = "wb") #use mode = "wb" to download as binary
+}
+
 pml_training <- read.csv(file = "./pml-training.csv") #read in the training data
 pml_testing <- read.csv(file = "./pml-testing.csv") #read in the testing data
 ```
 
+## Cleaning Data
 
-## Including Plots
+After reviewing the following literature <http://groupware.les.inf.puc-rio.br/public/papers/2012.Ugulino.WearableComputing.HAR.Classifier.RIBBON.pdf>, following features from the data collected from the tri-axial accelerometers are determined to be used as the inputs to the model:
 
-You can also embed plots, for example:
+for each accelerometer, 
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+* Euler angles of roll,  pitch, and yaw, 
+* as well as the length (module) of the acceleration vector.
+
+These features were extracted using the "grep" function taught in "Getting and Cleaning Data", the 3rd course from the Data Science Specialization. 
+```{r echo=TRUE}
+grep(pattern = "^roll|^pitch|^yaw|^total|^gyros|^accel|^magnet|classe", colnames(pml_training), value = TRUE) #Extracting the name of variables starting with the given criteria
+Selected.Variables <- grep(pattern = "^roll|^pitch|^yaw|^total|^gyros|^accel|^magnet|classe", colnames(pml_training), value = FALSE)
+```
+A list of selected variables are presented above. The last variable, "classe", is the model output.
+Then, a new data set with only the selected variables is created:
+```{r echo=TRUE}
+pml_training_selected <- pml_training[Selected.Variables]
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Creating Training & Testing Data Sets
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(caret); set.seed(12345)
+inTrain <- createDataPartition(y = pml_training_selected$classe, p = 0.7, list = FALSE)
+training <- pml_training_selected[inTrain,]
+testing <- pml_training_selected[-inTrain,]
+```
+
+Random Forest is selected as the machine learning algorithm to predict activity class. To improve the performance of the Random Forest model, the "parallel" and "doParallel" packages in conjunction with the trainControl() function in caret will be used.
+
+## Configuring Parallel Processing
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+```
+
+## Configuring TrainControl Object
+
+TrainControl Object is used to choose cross validation as the sampling method. The most critical arguments for the trainControl function are:
+
+1. method:  Cross Validation is selected as the resampling  method
+2. number: specifies the quantity of folds for k-fold cross-validation, and 
+3. allowParalle: which tells caret to use the cluster that we've registered in the previous step.
+
+These parameters are configured in the code below:
+```{r echo=TRUE}
+fitControl <- trainControl(method = "cv",           #Specifying resampling  method
+                           number = 5,              #Specifying the number of folds       
+                           allowParallel = TRUE)    #Allow caret to use parallel processing
+```
+
+## Training the Model
+
+The train() function in caret is used to train the model, using the trainControl() object that we created earlier.
+```{r echo=TRUE, cache = TRUE}
+model1 <- train(classe ~ ., data = training, method = "rf", trControl = fitControl)
+
+stopCluster(cluster) #shutting down the cluster made earlier
+registerDoSEQ()
+```
+
+## Estimating the Out of Sample Error
+
+At this point, our model, the object "model1" is tarined and can be used to evaluate its suitability by looking at accuracy and a confusion matrix.
+To estimate out-of-sample error, we will apply the genrated model on "testing" data set to predict the response variable (Classe).
+```{r echo=TRUE}
+prediction1 <- predict(model1, newdata = testing)
+confusionMatrix(prediction1, as.factor(testing$classe))
+```
+
+As shown above, the expected out of sample error would be:
+```{r echo=TRUE}
+confusionMatrix(prediction1, as.factor(testing$classe))$overall["Accuracy"]
+```
+
+
