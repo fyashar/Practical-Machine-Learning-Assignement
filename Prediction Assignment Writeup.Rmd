@@ -98,7 +98,7 @@ fitControl <- trainControl(method = "cv",           #Specifying resampling  meth
 ## Training the Model
 
 The train() function in caret is used to train the model, using the trainControl() object that we created earlier.
-```{r echo=TRUE, cache = TRUE}
+```{r echo=TRUE}
 model1 <- train(classe ~ ., data = training, method = "rf", trControl = fitControl)
 
 stopCluster(cluster) #shutting down the cluster made earlier
